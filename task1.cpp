@@ -1,16 +1,48 @@
 // clang -fopenmp task1.cpp -otask1.exe
 
-// All tests below use BLOCK_SIZE=8, DESIRED_ERROR=1e-1, laplacian=test_laplacian and boundary=test_boundary.
-// Tests were conducted on a i7-7700K machine, that has 4 cores and 8 hyperthreads
-//  size iterations seconds  (1 thread / 8 threads)    speedup
-// ~100   2285        0.21             / 2285 0.18       1.16
-// ~200   4264        1.67             / 4264 1.3        1.28
-// ~1000  8500        90.3             / 8500 24.6       3.67
-// ~2000  9578       978.8             / 9578 230.87     4.24
+// All tests below use BLOCK_SIZE=8, DESIRED_ERROR=1e-1, only laplacian and boundary functions vary.
+// Tests were conducted on a i7-7700K @4.2GHz machine, that has 4 cores and 8 hyperthreads, using clang version 17.0.6
+// These values are an arithmetic mean of the results over 10 runs:
 
-// Results seem consistent with that in the book. Since the block size is dependent solely
-// on the cache line size, small grids do not get almost any benefit from parallelism but
-// large grids certainly do. Block size could be lowered at the expense of cache utilization.
+// laplacian=book_laplacian, boundary=book_boundary:
+// Size  Iterations Seconds (1 thread / 8 threads)  Speedup
+// 100   2285                    0.21 / 0.18         1.16
+// 200   4264                    1.67 / 1.3          1.28
+// 1000  8500                    90.3 / 24.6         3.67
+// 2000  9578                   978.8 / 230.87       4.24
+// (Result are consistent with those in the book.)
+
+// laplacian=laplacian2, boundary=boundary2:
+// Size  Iterations Seconds (1 thread / 8 threads)  Speedup
+// 100   2764                   0.41  / 0.21          1.95
+// 200   4879                   0.83  / 0.4           2.08
+// 1000  9298                   130.4 / 43.7          2.98
+// 2000  11431                  1074  / 250.8         4.28
+// (Solution converges more slowly because of the high oscillation.)
+
+// laplacian=laplacian3, boundary=boundary3:
+// Size  Iterations Seconds (1 thread / 8 threads)  Speedup
+// 100   4                       0.01 / 0.06         0.16
+// 200   7                       0.02 / 0.07         0.28
+// 1000  10                      0.04 / 0.07         0.57
+// 2000  12                      0.07 / 0.08         0.88
+// (Solution converges almost instantly thus the overhead of launching multiple threads is no longes negligible.)
+
+// laplacian=laplacian4, boundary=boundary4:
+// Size  Iterations Seconds (1 thread / 8 threads)  Speedup
+// 100   1898                    0.28 / 0.21         1.31
+// 200   3491                    0.94 / 0.53         1.78
+// 1000  4675                    6.64 / 2.02         3.29
+// 2000  8924                    44.2 / 10.67        4.15
+// (Covengence is much faster in this case which indicates that large but bounded functions do not affect the algorithm much.)
+
+// laplacian=laplacian5, boundary=boundary5:
+// Size  Iterations Seconds (1 thread / 8 threads)  Speedup
+// 100   5500                     5.7 / 3.8          1.5
+// 200   8935                    11.4 / 5.2          2.19
+// 1000  11782                 1089.7 / 328.7        3.31
+// 2000  15839                 1489.3 / 368.9        4.03
+// (In this case we see that the speed of convegence is the smallest of all examples because the function is discontinuous at the origin.)
 
 #include <math.h>
 #include <stdarg.h>
@@ -23,8 +55,8 @@
 #include <omp.h>
 
 typedef uint32_t u32;
-typedef int32_t s32;
-typedef double f64;
+typedef int32_t  s32;
+typedef double   f64;
 
 typedef f64 (*Unit_Square_Function)(f64 x, f64 y);
 
@@ -119,8 +151,8 @@ u32 solve(Net *net)
     return total_iterations;
 }
 
-// \Delta u = f
-// u = g on the boundary
+// \Delta u = laplacian on the inside
+// u = boundary on the boundary
 void init(Net *net, u32 size, Unit_Square_Function laplacian, Unit_Square_Function boundary)
 {
     net->size = size;
@@ -143,14 +175,16 @@ void init(Net *net, u32 size, Unit_Square_Function laplacian, Unit_Square_Functi
     }
 }
 
+////////////////////// Tests //////////////////////
+
 // Request harmonic function
-f64 test_laplacian(f64 x, f64 y)
+f64 book_laplacian(f64 x, f64 y)
 {
     return 0;
 }
 
 // Use the function from the book
-f64 test_boundary(f64 x, f64 y)
+f64 book_boundary(f64 x, f64 y)
 {
     if (y == 0) {
         return 100 - 200 * x;
@@ -165,6 +199,51 @@ f64 test_boundary(f64 x, f64 y)
     }
 
     return -100 + 200 * y;
+}
+
+// Heavily oscillating function
+f64 boundary2(f64 x, f64 y)
+{
+    return sin(100 * (x * x + y * y));
+}
+
+f64 laplacian2(f64 x, f64 y)
+{
+    return 400 * cos(100 * (x * x + y * y)) - 40000 * (x * x + y * y) * sin(100 * (x * x + y * y));
+}
+
+// Very simple, constant function u(x, y) = 3
+f64 laplacian3(f64 x, f64 y)
+{
+    return 0;
+}
+
+f64 boundary3(f64 x, f64 y)
+{
+    return 3;
+}
+
+// Rapidly growing function near the origin u(x, y) = 1.0 / (x^2 + y^2 + 1E-9)
+#define CUBE(x) ((x) * (x) * (x))
+f64 laplacian4(f64 x, f64 y)
+{
+    return 4.0 * (-1E-9 + x * x + y * y) / CUBE(1E-9 + x * x + y * y);
+}
+
+f64 boundary4(f64 x, f64 y)
+{
+    return 1.0 / (x * x + y * y + 1E-9);
+}
+
+// Should converge to log(x^2 + y^2) that is discontinuous at (0, 0)
+f64 laplacian5(f64 x, f64 y)
+{
+    return 0;
+}
+
+f64 boundary5(f64 x, f64 y)
+{
+    return log(x * x + y * y);
 }
 
 void test(Net *net, u32 num_threads)
@@ -184,11 +263,6 @@ void test(Net *net, u32 num_threads)
 
 int main()
 {
-    Net net;
-    init(&net, 2026, test_laplacian, test_boundary);
-
-    test(&net, 8);
-
     return 0;
 }
 
