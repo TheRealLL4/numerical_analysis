@@ -42,7 +42,7 @@
 // 200   8935                    11.4 / 5.2          2.19
 // 1000  11782                 1089.7 / 328.7        3.31
 // 2000  15839                 1489.3 / 368.9        4.03
-// (In this case we see that the speed of convegence is the smallest of all examples because the function is discontinuous at the origin.)
+// (In this case we see that the speed of convegence is the smallest of all examples because the function is discontinuous at (0.5, 0.5).)
 
 #include <math.h>
 #include <stdarg.h>
@@ -69,7 +69,7 @@ struct Net
 
 // Cache line size on x64 is typically 64 bytes, we use 8-byte f64 values
 const u32 BLOCK_SIZE = 8;
-const f64 DESIRED_ERROR = 1e-1;
+const f64 DESIRED_ERROR = 1E-1;
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -170,6 +170,8 @@ void init(Net *net, u32 size, Unit_Square_Function laplacian, Unit_Square_Functi
 
             if ((x == 0) || (y == 0) || (x == size - 1) || (y == size - 1)) {
                 net->values[x][y] = boundary(x * step, y * step);
+            } else {
+                net->values[x][y] = 0;
             }
         }
     }
@@ -235,7 +237,7 @@ f64 boundary4(f64 x, f64 y)
     return 1.0 / (x * x + y * y + 1E-9);
 }
 
-// Should converge to log(x^2 + y^2) that is discontinuous at (0, 0)
+// Should converge to log((x - 0.5)^2 + (y - 0.5)^2) that is discontinuous at (0.5, 0.5)
 f64 laplacian5(f64 x, f64 y)
 {
     return 0;
@@ -243,7 +245,7 @@ f64 laplacian5(f64 x, f64 y)
 
 f64 boundary5(f64 x, f64 y)
 {
-    return log(x * x + y * y);
+    return log((x - 0.5) * (x - 0.5) + (y - 0.5) * (y - 0.5));
 }
 
 void test(Net *net, u32 num_threads)
